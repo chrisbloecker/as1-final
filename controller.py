@@ -4,14 +4,18 @@ import transformations as trans
 
 from cflib.crazyflie.log import LogConfig
 from threading           import Thread
+from multiprocessing     import Process
+from path                import *
+from requests            import post
+from json                import dumps
 
 # constants
 K_height_proportional = 0.25  # this should not be lower than 0.25
 K_height_derivative   = 0.15
 K_height_integral     = 0.05
 
-K_position_proportional = 15
-K_position_derivative   = 5
+K_position_proportional = 12
+K_position_derivative   = 13
 K_position_integral     = 0
 
 K_yaw_derivative        = 1
@@ -19,6 +23,65 @@ K_yaw_derivative        = 1
 C = 100000
 m = 0.0327
 g = 9.82
+
+
+class Command():
+    def __init__(self):
+        pass
+
+    def execute(self, drone):
+        pass
+
+class DistanceCommand(Command):
+    def __init__(self, dx, dy, dz):
+        Command.__init__(self)
+        self.dx = dx
+        self.dy = dy
+        self.dz = dz
+
+    def execute(self, drone):
+        drone.setRelativeTarget(self.dx, self.dy, self.dz)
+
+class PositionCommand(Command):
+    def __init__(self, x, y, z):
+        Command.__init__(self)
+        self.x = x
+        self.y = y
+        self.z = z
+
+    def execute(self, drone):
+        drone.setAbsoluteTarget(self.x, self.y, self.z)
+
+class StartCommand(Command):
+    def __init__(self):
+        Command.__init__(self)
+
+    def execute(self, drone):
+        drone.startMotors()
+
+class StopCommand(Command):
+    def __init__(self):
+        Command.__init__(self)
+
+    def execute(self, drone):
+        drone.stopMotors()
+
+
+def planPath(drone, dx, dy, dz):
+    try:
+        start  = Point(drone.pos_ref[0],      drone.pos_ref[1],      drone.pos_ref[2])
+        target = Point(drone.pos_ref[0] + dx, drone.pos_ref[1] + dy, drone.pos_ref[2] + dz)
+
+        planningStart = time.time()
+        path = drone.scene.planPath(start, target)
+        print(path)
+        if drone.debug:
+            print("[DEBUG] Path planning took {:.2f}s.".format(time.time() - planningStart))
+        for waypoint in path:
+            drone.commandQueue.put(PositionCommand(waypoint.x, waypoint.y, waypoint.z))
+    except Exception as e:
+        print("[ERROR] {}".format(e))
+
 
 class ControllerThread(Thread):
     period_in_ms = 20  # Control period. [ms]
@@ -165,20 +228,20 @@ class ControllerThread(Thread):
 
         print('Waiting for position estimate to be good enough...')
         self.reset_estimator()
-
         self.make_position_sanity_check();
 
-        # how accurately do we want the drone to reach its positoin?
-        tolerance  = 0.1 # in meters
+        # how accurately do we want the drone to reach its position?
+        tolerance  = 0.2 # in meters
 
         self.pos_ref    = self.pos
+        self.yaw_ref    = 0.0
         self.stop_motor = False
         position_found  = False
 
-        self.yaw_ref = 0.0
-        print('Initial positional reference:', self.pos_ref)
-        print('Initial thrust reference:', self.thrust_r)
-        print('Ready! Press e to enable motors, h for help and Q to quit')
+        print('[INFO ] Initial positional reference:', self.pos_ref)
+        print('[INFO ] Initial thrust reference:', self.thrust_r)
+        print('[INFO ] Ready! Press e to enable motors, h for help and Q to quit')
+
         log_file_name = 'flightlog_' + time.strftime("%Y%m%d_%H%M%S") + '.csv'
         with open(log_file_name, 'w') as fh:
             t0 = time.time()
@@ -189,11 +252,12 @@ class ControllerThread(Thread):
                 if np.linalg.norm(self.pos_ref - self.pos) < tolerance and not position_found:
                     position_found = True
 
-                if not self.commandQueue.empty():
+                if position_found and not self.commandQueue.empty():
                     self.commandQueue.get().execute(self)
+                    position_found = False
 
                 # calculate the control signals to reach the desired position
-                self.calc_control_signals(self.stop_motor)
+                self.calc_control_signals()
 
                 if self.enabled:
                     sp = (self.roll_r, self.pitch_r, self.yawrate_r, int(self.thrust_r))
@@ -213,7 +277,7 @@ class ControllerThread(Thread):
                     fh.flush()
                 self.loop_sleep(time_start)
 
-    def calc_control_signals(self, stop = False):
+    def calc_control_signals(self):
         roll, pitch, yaw  = trans.euler_from_quaternion(self.attq)
 
         # Compute control errors in position
@@ -236,7 +300,7 @@ class ControllerThread(Thread):
         self.roll_r    = np.clip(theta_ref, *self.roll_limit)
         self.pitch_r   = np.clip(phi_ref, *self.pitch_limit)
         self.yawrate_r = np.clip(psi_ref, *self.yaw_limit)
-        self.thrust_r  = 0 if stop else np.clip(thrust_ref, *self.thrust_limit)
+        self.thrust_r  = np.clip(thrust_ref, *self.thrust_limit)
 
         if self.debug and (time.time() - 2.0) > self.last_time_print:
             self.last_time_print = time.time()
@@ -248,10 +312,6 @@ class ControllerThread(Thread):
             print("integral: ({:.2f}, {:.2f}, {:.2f})".format(self.ex_int, self.ey_int, self.ez_int))
             print("control:  ({:.2f}, {:.2f}, {:.2f}, {:.2f})".format(self.roll_r, self.pitch_r, self.yawrate_r, self.thrust_r))
             print("")
-
-
-    def print_at_period(self, period, message):
-        """ Prints the message at a given period """
 
 
     def reset_estimator(self):
@@ -278,6 +338,8 @@ class ControllerThread(Thread):
             print('Enabling controller')
         # Need to send a zero setpoint to unlock the controller.
         self.send_setpoint(0.0, 0.0, 0.0, 0)
+        # let it take off a bit
+        self.pos_ref = self.pos + np.r_[0.0, 0.0, 0.3]
         self.enabled = True
         # reset the integrated error!
         self.ex_int = 0
@@ -305,9 +367,27 @@ class ControllerThread(Thread):
         self.debug = not self.debug
 
     def setRelativeTarget(self, dx, dy, dz):
-        self.pos_ref += np.array([dx, dy, dz])
+        json = dumps({ "start"  : (self.pos_ref[0],      self.pos_ref[1],      self.pos_ref[2])
+                     , "target" : (self.pos_ref[0] + dx, self.pos_ref[1] + dy, self.pos_ref[2] + dz)
+                     })
+        t = Thread(target = post, args = ("http://localhost:8001", json))
+        t.daemon = True
+        t.start()
+
+    def setAbsoluteTarget(self, x, y, z):
+        self.pos_ref = np.r_[x, y, z]
+
         if self.debug:
             print("[DEBUG] Setting reference position to ({:.2f}, {:.2f}, {:.2f})".format(self.pos_ref[0], self.pos_ref[1], self.pos_ref[2]))
 
-    def stopRotors(self):
-        self.stop_motor
+    def stopMotors(self):
+        #self.stop_motor = True
+        self.disable()
+        if self.debug:
+            print("[DEBUG] Stopping motors!")
+
+    def startMotors(self):
+        #self.stop_motor = False
+        self.enable()
+        if self.debug:
+            print("[DEBUG] Starting motors!")

@@ -10,10 +10,10 @@ import termios
 from cflib           import crazyflie, crtp
 from controller      import ControllerThread
 from multiprocessing import Process, Queue
-from server          import runServer
+from server          import runServer, runPathPlanner
 
 # Set a channel - if set to None, the first available crazyflie is used
-URI = 'radio://0/110/2M'
+URI = 'radio://0/85/2M'
 
 # sequence = [ ([1.95, 0.80, 1.60], "hover", 0.0)
 #            , ([1.95, 2.30, 1.60], "hover", 2.0)
@@ -134,6 +134,9 @@ if __name__ == "__main__":
 
     server = Process(target = runServer, args = ("0.0.0.0", 8000, crazyflieCommandQueue))
     server.start()
+
+    pathPlanner = Process(target = runPathPlanner, args = ("0.0.0.0", 8001, crazyflieCommandQueue))
+    pathPlanner.start()
 
     if URI is None:
         print('Scanning for Crazyflies...')
