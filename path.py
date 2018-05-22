@@ -6,6 +6,11 @@
 
 import numpy as np
 
+from redblack import *
+
+fst = lambda p: p[0]
+snd = lambda p: p[1]
+
 # A 3D point.
 class Point():
   def __init__(self, x, y , z):
@@ -109,10 +114,10 @@ class Scene():
           self.space[i, j, k] = any([obstacle.contains(p) for obstacle in obstacles])
 
   # Get the middle of a given grid cell (gx, gy, gz).
-  def getPoint(self, gx, gy, gz):
-    return Point( (gx + 0.5) * self.resolution
-                , (gy + 0.5) * self.resolution
-                , (gz + 0.5) * self.resolution
+  def getPoint(self, xyz):
+    return Point( (xyz[0] + 0.5) * self.resolution
+                , (xyz[1] + 0.5) * self.resolution
+                , (xyz[2] + 0.5) * self.resolution
                 )
 
   # Get the coordinate in the grid of a point.
@@ -133,58 +138,74 @@ class Scene():
       raise Exception("Target ({:.2f}, {:.2f}, {:.2f}) is out of bounds!".format(target.x, target.y, target.z))
 
     # the grid cells corresponding to start and target
-    startX,  startY,  startZ  = self.getCoordinate(start)
-    targetX, targetY, targetZ = self.getCoordinate(target)
+    startCell  = self.getCoordinate(start)
+    targetCell = self.getCoordinate(target)
 
     # the start point must not lie within an obstacle
-    if self.space[startX, startY, startZ]:
-      raise Exception("Start {} point lies within an obstacle!".format(self.getPoint(startX, startY, startZ)))
+    if self.space[startCell[0], startCell[1], startCell[2]]:
+      raise Exception("Start {} point lies within an obstacle!".format(self.getPoint(startCell)))
 
     # the target point must not lie within an obstacle
-    if self.space[targetX, targetY, targetZ]:
-      raise Exception("Target {} point lies within an obstacle!".format(self.getPoint(targetX, targetY, targetZ)))
+    if self.space[targetCell[0], targetCell[1], targetCell[2]]:
+      raise Exception("Target {} point lies within an obstacle!".format(self.getPoint(startCell)))
 
+    # explored and unexplored cells
     explored   = set()
-    unexplored = { (startX, startY, startZ) : start.distanceTo(target) }
-    cameFrom   = {}
+    unexplored = { startCell : start.distanceTo(target) }
+
+    # a queue of cells to retrieve that cell with expected lowest cost
+    queue      = Empty(key = snd).insert(((startCell), start.distanceTo(target)))
+
+    # for reconstructing the path, stores the predecessor of cells along the cheapest path
+    cameFrom   = { startCell : startCell }
+
+    # costs to get to the grid cells
+    costs      = { startCell : 0 }
+
+    current, currentCost = startCell, 0
 
     # continue planning as long as we have unexplored grid cells left
     while len(unexplored) > 0:
-      (currentX, currentY, currentZ), currentCost = min(unexplored.items(), key = lambda p: p[1])
-      unexplored.pop((currentX, currentY, currentZ))
-      explored.add((currentX, currentY, currentZ))
+      while current not in unexplored:
+          (current, _), queue = queue.popMin()
+      unexplored.pop(current)
+      explored.add(current)
 
-      if currentX == targetX and currentY == targetY and currentZ == targetZ:
-        return self.reconstructPath(cameFrom, (currentX, currentY, currentZ), target)
+      if current == targetCell:
+        return self.reconstructPath(cameFrom, current, target)
 
-      p = self.getPoint(currentX, currentY, currentZ)
+      o = self.getPoint(cameFrom[(current)])
+      p = self.getPoint(current)
+
+      costs[current] = costs[cameFrom[(current)]] + o.distanceTo(p)
 
       for dx in [-1, 0, 1]:
         for dy in [-1, 0, 1]:
           for dz in [-1, 0, 1]:
-            x = currentX + dx
-            y = currentY + dy
-            z = currentZ + dz
+            x = current[0] + dx
+            y = current[1] + dy
+            z = current[2] + dz
 
-            q = self.getPoint(x, y, z)
+            q = self.getPoint((x, y, z))
 
             if (x, y, z) not in explored and self.bounds.contains(q) and not self.space[x, y, z]:
               cost = currentCost + q.distanceTo(target)
 
               if (x, y, z) not in unexplored or cost < unexplored[(x, y, z)]:
+                queue = queue.insert(((x, y, z), cost))
                 unexplored[(x, y, z)] = cost
-                cameFrom[(x, y, z)]   = (currentX, currentY, currentZ)
+                cameFrom[(x, y, z)]   = current
 
     raise Exception("Cannot find a path to target!")
 
   def reconstructPath(self, cameFrom, endpoint, target):
     path = [ target
-           , self.getPoint(endpoint[0], endpoint[1], endpoint[2])
+           , self.getPoint(endpoint)
            ]
 
-    while endpoint in cameFrom:
+    while endpoint != cameFrom[endpoint]:
       endpoint = cameFrom[endpoint]
-      path.append(self.getPoint(endpoint[0], endpoint[1], endpoint[2]))
+      path.append(self.getPoint(endpoint))
     return path[::-1]
 
 
