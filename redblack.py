@@ -8,6 +8,10 @@
 #
 # Implemented functionality is insert, retrieving the minimum element, and
 # balancing (though the balancing might be incorrect).
+#
+# Author: Christopher Blöcker
+
+from abc import ABC, abstractmethod
 
 # the identity function
 identity = lambda x: x
@@ -19,36 +23,62 @@ class Colour():
 
 
 # The interface for a red black tree.
-class RedBlackTree():
+class RedBlackTree(ABC):
     def __init__(self):
         pass
 
+    # Red nodes must not have red children and the number of black nodes along
+    # all paths to the leaves must be the same.
+    @abstractmethod
     def checkInvariant(self):
-        pass
+        raise Exception("checkInvariant not implemented.")
 
+    # checks whether the tree is empty
+    @abstractmethod
     def isEmpty(self):
-        pass
+        raise Exception("isEmpty not implemented.")
 
+    # checks whether the root node is red
     def isRed(self):
         return self.colour == Colour.RED
 
+    # checks whether the root node is black
     def isBlack(self):
         return self.colour == Colour.BLACK
 
+    # counts the number of elements in the tree
+    @abstractmethod
     def size(self):
-        pass
+        raise Exception("size not implemented.")
 
+    # inserts an element into the tree and uses the key to measure the element
+    @abstractmethod
     def insert(self, element, key = identity):
-        pass
+        raise Exception("insert not implemented.")
 
+    # balances the tree
+    @abstractmethod
     def balance(self):
-        pass
+        raise Exception("balance not implemented.")
 
+    # determines the depth of the tree
+    @abstractmethod
     def depth(self):
-        pass
+        raise Exception("depth not implemented.")
 
+    # Counts the number of black nodes to the leaf nodes. In a balances tree,
+    # there should be the same number of black nodes along all paths from the
+    # root to any of the leaves.
+    @abstractmethod
+    def blackDepth(self):
+        raise Exception("blackDepth not implemented.")
+
+    # returns the minimum element and the new tree with the minimum removed
+    # the minimum element is always in the leftmost leaf.
+    # O(log(n))
+    @abstractmethod
     def popMin(self):
-        pass
+        raise Exception("popMin not implemented.")
 
 
 # An empty red black tree.
@@ -63,32 +93,43 @@ class Empty(RedBlackTree):
     def __repr__(self):
         return "<Empty>"
 
-    def __insert__(self, element):
-        return self.insert(element)
-
+    # Red nodes must not have red children and the number of black nodes along
+    # all paths to the leaves must be the same.
     def checkInvariant(self):
         return True
 
+    # checks whether the tree is empty
     def isEmpty(self):
         return True
 
+    # counts the number of elements in the tree
     def size(self):
         return 0
 
+    # hack to fit how the non-empty tree works
+    def __insert__(self, element):
+        return self.insert(element)
+
+    # inserts an element into the tree and uses the key to measure the element
     def insert(self, element):
         return Node( element = element
                    , colour  = Colour.RED
                    , key     = self.key
                    )
 
+    # balances the tree
     def balance(self):
         return self
 
-    def balanceLeft(self):
-        return self
-
+    # determines the depth of the tree
     def depth(self):
         return 0
+
+    # Counts the number of black nodes to the leaf nodes. In a balances tree,
+    # there should be the same number of black nodes along all paths from the
+    # root to any of the leaves.
+    def blackDepth(self):
+        return 1 if self.isBlack() else 0
 
     def popMin(self):
         raise Exception("Empty tree!")
@@ -106,6 +147,21 @@ class Node(RedBlackTree):
 
     def __repr__(self):
         return "(<Node:{}:{}> {} {})".format(self.colour, self.element, self.left, self.right)
+
+    # Red nodes must not have red children and the number of black nodes along
+    # all paths to the leaves must be the same.
+    def checkInvariant(self):
+        return (self.isBlack() or (self.left.isBlack() and self.right.isBlack())) \
+           and self.left.checkInvariant() and self.right.checkInvariant() \
+           and self.left.blackDepth() == self.right.blackDepth()
+
+    # checks whether the tree is empty
+    def isEmpty(self):
+        return False
+
+    # counts the number of elements in the tree
+    def size(self):
+        return 1 + self.left.size() + self.right.size()
 
     # "internal" method to insert a new element into the tree.
     # Performs rotations to balance the tree if necessary.
@@ -130,20 +186,14 @@ class Node(RedBlackTree):
 
         return t
 
-    def checkInvariant(self):
-        return self.isBlack() or (self.left.isBlack() and self.right.isBlack())
-
-    def isEmpty(self):
-        return False
-
-    def size(self):
-        return 1 + self.left.size() + self.right.size()
-
+    # Inserts an element into the tree. The actual insert is done by __insert__,
+    # but we use this wrapper to colour the root node black after insertion.
     def insert(self, element):
         t        = self.__insert__(element)
         t.colour = Colour.BLACK
         return t
 
+    # makes the root node red if it is not already red.
     def mkRed(self):
         if self.colour == Colour.RED:
             raise Exception("This node was already RED!")
@@ -155,6 +205,7 @@ class Node(RedBlackTree):
                    , right   = self.right
                    )
 
+    # balances the tree
     def balance(self):
         if self.left.isRed() and self.right.isRed():
             t = Node( element = self.element
@@ -235,6 +286,7 @@ class Node(RedBlackTree):
                                     , right   = self.right.right
                                     )
                     )
+
         else:
             t = Node( element = self.element
                     , key     = self.key
@@ -244,90 +296,25 @@ class Node(RedBlackTree):
 
         return t
 
-    def balanceLeft(self):
-        if self.left.isRed():
-            print("#1")
-            t = Node( element = self.element
-                    , colour  = Colour.RED
-                    , key     = self.key
-                    , left    = Node( element = self.left.element
-                                    , key     = self.key
-                                    , left    = self.left.left
-                                    , right   = self.left.right
-                                    )
-                    , right   = self.right
-                    )
-
-        elif self.right.isBlack() and not self.right.isEmpty():
-            print("#2")
-            t = Node( element = self.element
-                    , key     = self.key
-                    , left    = self.left
-                    , right   = Node( element = self.right.element
-                                    , colour  = Colour.RED
-                                    , key     = self.key
-                                    , left    = self.right.left
-                                    , right   = self.right.right
-                                    )
-                    ).balance()
-
-        elif self.right.isRed() and self.right.left.isBlack() and not self.right.left.isEmpty():
-            print("#3")
-            t = Node( element = self.right.left.element
-                    , colour  = Colour.RED
-                    , key     = self.key
-                    , left    = Node( element = self.element
-                                    , key     = self.key
-                                    , left    = self.left
-                                    , right   = self.right.left.left
-                                    )
-                    , right   = Node( element = self.right.element
-                                    , key     = self.key
-                                    , left    = self.right.left.right
-                                    , right   = self.right.right.mkRed()
-                                    ).balance()
-                    )
-
-        elif self.isBlack() and not self.left.isEmpty() and self.left.isBlack() and self.left.right.isRed():
-            print("#5")
-            t = Node( element = self.left.right.element
-                    , colour  = Colour.RED
-                    , key     = self.key
-                    , left    = Node( element = self.left.element
-                                    , key     = self.key
-                                    , left    = self.left.left
-                                    , right   = self.left.right.left
-                                    )
-                    , right   = Node( element = self.left.right.element
-                                    , key     = self.key
-                                    , left    = self.left.right.right
-                                    , right   = self.right
-                                    ).balance()
-                    )
-
-        elif (self.left.isEmpty() and self.right.isEmpty()) or (self.isBlack() and self.left.isBlack() and self.right.isRed()):
-            t = self
-
-        else:
-            print(self)
-            raise Exception("Unexpected case in balanceLeft!")
-
-        if (not t.left.isEmpty() and t.key(t.element) < t.key(t.left.element)) or (not t.right.isEmpty() and t.key(t.element) > t.key(t.right.element)):
-            print(t)
-            raise Exception("The tree is not sorted!")
-
-        return t
-
+    # determines the depth of the tree
     def depth(self):
         return 1 + min(self.left.depth(), self.right.depth())
 
-    # returns the minimum element and the new tree with the minimum removed
-    # the minimum element is always in the leftmost leaf of the tree.
-    def popMin(self):
+    # Counts the number of black nodes to the leaf nodes. In a balances tree,
+    # there should be the same number of black nodes along all paths from the
+    # root to any of the leaves.
+    def blackDepth(self):
+        l = self.left.blackDepth()
+        r = self.right.blackDepth()
+
+        return max(l, r) + (1 if self.isBlack() else 0)
+
+    # "internal" method to find the minimum of the tree and to remove it.
+    def __popMin__(self):
         if self.left.isEmpty():
             return (self.element, self.right)
 
-        (m, l) = self.left.popMin()
+        (m, l) = self.left.__popMin__()
 
         t = Node( element = self.element
                 , colour  = self.colour
@@ -336,10 +323,28 @@ class Node(RedBlackTree):
                 , right   = self.right
                 ).balance()
 
-        t.checkInvariant()
-
         return (m, t)
 
+    # returns the minimum element and the new tree with the minimum removed
+    # the minimum element is always in the leftmost leaf of the tree.
+    # O(log(n))
+    def popMin(self):
+        (m, t) = self.__popMin__()
+
+        t.colour = Colour.BLACK
+
+        return (m, t)
+        # ToDo: we SHOULD check whether the invariant holds after removing
+        #       something from the tree... but at the moment it doesn't...
+        #       we need to change how we balance the tree after removing something
+
+        # if t.checkInvariant():
+        #     return (m, t)
+        # else:
+        #     print(t)
+        #     raise Exception("Malformed tree!")
+
+    # for testing whether popMin returns the correct result
     def getMin(self):
         if self.left.isEmpty() and self.right.isEmpty():
             return self.key(self.element)
@@ -356,7 +361,7 @@ class Node(RedBlackTree):
 if __name__ == '__main__':
     from random import randint, random
 
-    l = [randint(0, 1000) for _ in range(1000)]
+    l = [randint(0, 10) for _ in range(1000)]
     t = Empty()
 
     for x in l:

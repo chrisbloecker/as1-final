@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# Author: Christopher Blöcker, Timotheus Kampik, Tobias Sundqvist, Marcus?
+
 from __future__      import print_function
 
 import logging
