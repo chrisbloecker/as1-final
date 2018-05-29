@@ -22,12 +22,23 @@ class Point():
         self.y = y
         self.z = z
 
+    def __eq__(self, other):
+        return np.abs(self.x - other.x) <= np.finfo(float).eps \
+           and np.abs(self.y - other.y) <= np.finfo(float).eps \
+           and np.abs(self.z - other.z) <= np.finfo(float).eps
+
     def __repr__(self):
         return "({:.2f}, {:.2f}, {:.2f})".format(self.x, self.y, self.z)
 
     # measures the distance to a given point
     def distanceTo(self, point):
         return np.linalg.norm([self.x - point.x, self.y - point.y, self.z - point.z])
+
+    def sub(self, point):
+        return Point( self.x - point.x
+                    , self.y - point.y
+                    , self.z - point.z
+                    )
 
 
 # An abstract object.
@@ -167,23 +178,19 @@ class Scene():
         # costs to get to the grid cells
         costs      = { startCell : 0 }
 
-        current, currentCost = startCell, 0
-
         # continue planning as long as we have unexplored grid cells left
         while len(unexplored) > 0:
+            (current, currentCost), queue = queue.popMin()
             while current not in unexplored:
-                (current, _), queue = queue.popMin()
+                (current, currentCost), queue = queue.popMin()
             unexplored.pop(current)
             explored.add(current)
 
             # we found a path!
             if current == targetCell:
-                return self.reconstructPath(cameFrom, current, target)
+                return self.postprocessPath(self.reconstructPath(cameFrom, current, target))
 
-            o = self.getPoint(cameFrom[(current)])
             p = self.getPoint(current)
-
-            costs[current] = costs[cameFrom[(current)]] + o.distanceTo(p)
 
             for dx in [-1, 0, 1]:
                 for dy in [-1, 0, 1]:
@@ -195,12 +202,13 @@ class Scene():
                         q = self.getPoint((x, y, z))
 
                         if (x, y, z) not in explored and self.bounds.contains(q) and not self.space[x, y, z]:
-                            cost = currentCost + q.distanceTo(target)
+                            cost = currentCost + p.distanceTo(q)
 
                             if (x, y, z) not in unexplored or cost < unexplored[(x, y, z)]:
-                                queue = queue.insert(((x, y, z), cost))
+                                queue = queue.insert(((x, y, z), cost + q.distanceTo(target)))
                                 unexplored[(x, y, z)] = cost
                                 cameFrom[(x, y, z)]   = current
+                                costs[(x, y, z)]      = cost
 
         raise Exception("Cannot find a path to target!")
 
@@ -214,16 +222,33 @@ class Scene():
             path.append(self.getPoint(endpoint))
         return path[::-1]
 
+    def postprocessPath(self, path):
+        reducedPath = [path[0]]
+
+        for i in range(1, len(path) - 1):
+            if path[i].sub(path[i-1]) != path[i+1].sub(path[i]):
+                reducedPath.append(path[i])
+
+        reducedPath.append(path[-1])
+
+        print("[DEBUG] Original path: {}".format(path))
+        print("[DEBUG] Reduced path: {}".format(reducedPath))
+
+        return reducedPath
+
 
 if __name__ == '__main__':
-    table1 = Translate(Scale(Cube(), 1.30, 0.65, 0.75), 1.35, 0.68, 0.00)
-    table2 = Translate(Scale(Cube(), 1.30, 0.65, 0.75), 1.35, 2.68, 0.00)
+    table1 = Translate(Scale(Cube(), 1.30, 0.65, 0.75), 1.67, 0.00, 0.00)
+    table2 = Translate(Scale(Cube(), 1.30, 0.85, 0.60), 1.67, 3.75, 0.00)
 
-    obstacle = Translate(Scale(Cube(), 1.60, 0.8, 2.20), 1.25, 1.70, 0.00)
+    obstacle1 = Translate(Scale(Cube(), 1.5, 0.85, 2.0), 1.55, 1.05, 0.00)
+    obstacle2 = Translate(Scale(Cube(), 2.0, 1.15, 2.0), 0.00, 2.10, 0.00)
+    obstacle3 = Translate(Scale(Cube(), 1.5, 1.15, 2.0), 2.50, 2.10, 0.00)
+    obstacle4 = Translate(Scale(Cube(), 4.0, 1.15, 1.3), 0.00, 2.10, 0.70)
 
-    scene  = Scene(4.0, 4.0, 2.5, 0.1, [table1, table2, obstacle])
-    start  = Point(2.0, 1.0, 0.9)
-    target = Point(2.0, 3.0, 0.9)
+    scene  = Scene(4.0, 5.0, 2.0, 0.1, [table1, table2, obstacle1, obstacle2, obstacle3, obstacle4])
+    start  = Point(2.0, 0.5, 0.9)
+    target = Point(2.0, 4.3, 0.9)
 
     path = scene.planPath(start, target)
 
